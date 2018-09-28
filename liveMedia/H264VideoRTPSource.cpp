@@ -73,6 +73,11 @@ Boolean H264VideoRTPSource
   if (packetSize < 1) return False;
   fCurPacketNALUnitType = (headerStart[0]&0x1F);
   switch (fCurPacketNALUnitType) {
+  case 8: { //PPS
+    // use to verify IDR frame is comming.
+    bNextIDRFrame = True;
+    break;
+  }
   case 24: { // STAP-A
     numBytesToSkip = 1; // discard the type byte
     break;

@@ -77,6 +77,11 @@ Boolean H265VideoRTPSource
   if (packetSize < 2) return False;
   fCurPacketNALUnitType = (headerStart[0]&0x7E)>>1;
   switch (fCurPacketNALUnitType) {
+  case 34: { //PPS
+    // use to verify IDR frame is comming.
+    bNextIDRFrame = True;
+    break;
+  }
   case 48: { // Aggregation Packet (AP)
     // We skip over the 2-byte Payload Header, and the DONL header (if any).
     if (fExpectDONFields) {

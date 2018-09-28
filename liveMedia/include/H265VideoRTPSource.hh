@@ -38,6 +38,9 @@ public:
   u_int64_t currentNALUnitAbsDon() const { return fCurrentNALUnitAbsDon; }
       // the 'absolute decoding order number (AbsDon)' for the most-recently delivered NAL unit
 
+  Boolean getNextIsIDRFrame() { return bNextIDRFrame; }
+  void setNextIsIDRFrame(Boolean ret) { bNextIDRFrame = ret; }
+
 protected:
   H265VideoRTPSource(UsageEnvironment& env, Groupsock* RTPgs,
 		     unsigned char rtpPayloadFormat,
@@ -62,6 +65,8 @@ private:
   unsigned char fCurPacketNALUnitType;
   u_int16_t fPreviousNALUnitDON;
   u_int64_t fCurrentNALUnitAbsDon;
+
+  Boolean bNextIDRFrame;
 };
 
 #endif

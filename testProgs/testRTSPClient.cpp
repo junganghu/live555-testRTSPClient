@@ -157,6 +157,19 @@ private:
   // redefined virtual functions:
   virtual Boolean continuePlaying();
 
+  void streamHealthWatcher(unsigned frameSize, struct timeval presentationTime);
+  Boolean fisrtIDRFrameArrive;
+  Boolean isIDRFrame;
+  double lastNormalPlayTime;
+  double framerateCurrent;
+  double framerateMax;
+  double framerateMin;
+  double framerateAverage;
+  unsigned long long totalFrameBitrate;
+  unsigned long long totalIDRFrameCounter;
+  unsigned long long frameCounter;
+  unsigned long long totalFrameCount;
+
 private:
   u_int8_t* fReceiveBuffer;
   MediaSubsession& fSubsession;
@@ -470,7 +483,7 @@ StreamClientState::~StreamClientState() {
 
 // Even though we're not going to be doing anything with the incoming data, we still need to receive it.
 // Define the size of the buffer that we'll use:
-#define DUMMY_SINK_RECEIVE_BUFFER_SIZE 100000
+#define DUMMY_SINK_RECEIVE_BUFFER_SIZE 1000000
 
 DummySink* DummySink::createNew(UsageEnvironment& env, MediaSubsession& subsession, char const* streamId) {
   return new DummySink(env, subsession, streamId);
@@ -481,6 +494,19 @@ DummySink::DummySink(UsageEnvironment& env, MediaSubsession& subsession, char co
     fSubsession(subsession) {
   fStreamId = strDup(streamId);
   fReceiveBuffer = new u_int8_t[DUMMY_SINK_RECEIVE_BUFFER_SIZE];
+  
+  // initialize
+  lastNormalPlayTime = 0;
+  framerateCurrent = 0;
+  framerateMax = -1;
+  framerateMin = 1024;
+  framerateAverage = -1;
+  totalFrameBitrate = 0;
+  frameCounter = 0;
+  totalIDRFrameCounter = 0;
+  totalFrameCount = 0;
+  fisrtIDRFrameArrive = false;
+  isIDRFrame = false;
 }
 
 DummySink::~DummySink() {
@@ -491,16 +517,94 @@ DummySink::~DummySink() {
 void DummySink::afterGettingFrame(void* clientData, unsigned frameSize, unsigned numTruncatedBytes,
 				  struct timeval presentationTime, unsigned durationInMicroseconds) {
   DummySink* sink = (DummySink*)clientData;
+  sink->streamHealthWatcher(frameSize, presentationTime);
   sink->afterGettingFrame(frameSize, numTruncatedBytes, presentationTime, durationInMicroseconds);
 }
 
+void DummySink::streamHealthWatcher(unsigned frameSize, struct timeval presentationTime) {
+  if(strncmp(fSubsession.mediumName(), "video", 5) != 0) {
+    // skip audio
+    return;
+  }
+
+  if(frameSize <= 32) {
+    // assume small framesize(< 32 bytes) is header
+    // TODO: Need to verify this frame is header or not.
+    return;
+  }
+
+  // check next is IDR frame
+  Boolean isH264 = False;
+  if(strncmp(fSubsession.codecName(), "H264", 4) == 0) {
+    isH264 = True;
+    isIDRFrame = ((H264VideoRTPSource*)(fSubsession.rtpSource()))->getNextIsIDRFrame();
+  }
+  else if(strncmp(fSubsession.codecName(), "H265", 4) == 0) {
+    isH264 = False;
+    isIDRFrame = ((H265VideoRTPSource*)(fSubsession.rtpSource()))->getNextIsIDRFrame();
+  } else {
+    return;
+  }
+
+  // wait fisrt IDR frame come and then start counting.
+  if(fisrtIDRFrameArrive){
+    totalFrameCount++;
+    frameCounter++;
+    totalFrameBitrate += frameSize;
+  }
+
+  double NPT = fSubsession.getNormalPlayTime(presentationTime);
+  double time_diff = NPT - lastNormalPlayTime;
+  if(isIDRFrame) {
+    // reset IDR frame flag
+    if(isH264)
+      ((H264VideoRTPSource*)(fSubsession.rtpSource()))->setNextIsIDRFrame(False);
+    else
+      ((H265VideoRTPSource*)(fSubsession.rtpSource()))->setNextIsIDRFrame(False);
+
+    // if this is the first I frame, skip counting.
+    if(!fisrtIDRFrameArrive) {
+      fisrtIDRFrameArrive = True;
+      return;
+    }
+
+    totalIDRFrameCounter++;
+
+    framerateCurrent = frameCounter / time_diff;
+
+    if(framerateCurrent > framerateMax)
+      framerateMax = framerateCurrent;
+
+    if(framerateCurrent < framerateMin)
+      framerateMin = framerateCurrent;
+
+    framerateAverage = totalFrameCount / NPT;
+
+    // output result
+    envir() << "====================[ Normal play time: " << NPT << " ]====================\n";
+    envir() << "Framerate--\tCurrent:" << framerateCurrent << "\tMax:" << framerateMax << "\tMin:" << framerateMin << "\tAverage:" << framerateAverage << "\n";
+    envir() << "Bitrate:" << (double)(totalFrameBitrate/totalFrameCount) << " byte(s).\n";
+    envir() << "I-Frame Interval: " << NPT/totalIDRFrameCounter << " second(s).\n";
+
+    lastNormalPlayTime = NPT;
+    frameCounter = 0;
+  }
+}
+
 // If you don't want to see debugging output for each received frame, then comment out the following line:
-#define DEBUG_PRINT_EACH_RECEIVED_FRAME 1
+//#define DEBUG_PRINT_EACH_RECEIVED_FRAME 1
+//#define DEBUG_PRINT_SKIP_AUDIO 1
+//#define DEBUG_PRINT_NPT 1
 
 void DummySink::afterGettingFrame(unsigned frameSize, unsigned numTruncatedBytes,
 				  struct timeval presentationTime, unsigned /*durationInMicroseconds*/) {
   // We've just received a frame of data.  (Optionally) print out information about it:
 #ifdef DEBUG_PRINT_EACH_RECEIVED_FRAME
+#ifdef DEBUG_PRINT_SKIP_AUDIO
+  if(strncmp(fSubsession.mediumName(), "audio", 5) == 0) {
+    return;
+  }
+#endif
   if (fStreamId != NULL) envir() << "Stream \"" << fStreamId << "\"; ";
   envir() << fSubsession.mediumName() << "/" << fSubsession.codecName() << ":\tReceived " << frameSize << " bytes";
   if (numTruncatedBytes > 0) envir() << " (with " << numTruncatedBytes << " bytes truncated)";

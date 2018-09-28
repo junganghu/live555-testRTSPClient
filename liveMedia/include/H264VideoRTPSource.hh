@@ -32,6 +32,9 @@ public:
 	    unsigned char rtpPayloadFormat,
 	    unsigned rtpTimestampFrequency = 90000);
 
+  Boolean getNextIsIDRFrame() { return bNextIDRFrame; }
+  void setNextIsIDRFrame(Boolean ret) { bNextIDRFrame = ret; }
+
 protected:
   H264VideoRTPSource(UsageEnvironment& env, Groupsock* RTPgs,
 			 unsigned char rtpPayloadFormat,
@@ -49,6 +52,7 @@ protected:
 private:
   friend class H264BufferedPacket;
   unsigned char fCurPacketNALUnitType;
+  Boolean bNextIDRFrame;
 };
 
 class SPropRecord {
