@@ -56,11 +56,13 @@ UsageEnvironment& operator<<(UsageEnvironment& env, const MediaSubsession& subse
 }
 
 void usage(UsageEnvironment& env, char const* progName) {
-  env << "Usage: " << progName << " <rtsp-url-1> ... <rtsp-url-N>\n";
+  env << "Usage: " << progName << "[-d <duration>] <rtsp-url-1> ... <rtsp-url-N>\n";
   env << "\t(where each <rtsp-url-i> is a \"rtsp://\" URL)\n";
 }
 
 char eventLoopWatchVariable = 0;
+
+static unsigned int playDuration = 0;
 
 int main(int argc, char** argv) {
   // Begin by setting up our usage environment:
@@ -73,9 +75,17 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // There are argc-1 URLs: argv[1] through argv[argc-1].  Open and start streaming each one:
-  for (int i = 1; i <= argc-1; ++i) {
-    openURL(*env, argv[0], argv[i]);
+  if (strncmp(argv[1], "-d", 2) == 0) {
+    *env << "Set duration: " << argv[2] << "\n";
+    playDuration = atoi(argv[2]);
+    for (int i = 1; i <= argc-3; ++i) {
+      openURL(*env, argv[0], argv[i+2]);
+    }
+  } else {
+    // There are argc-1 URLs: argv[1] through argv[argc-1].  Open and start streaming each one:
+    for (int i = 1; i <= argc-1; ++i) {
+      openURL(*env, argv[0], argv[i]);
+    }
   }
 
   // All subsequent activity takes place within the event loop:
@@ -336,16 +346,16 @@ void continueAfterPLAY(RTSPClient* rtspClient, int resultCode, char* resultStrin
     // using a RTCP "BYE").  This is optional.  If, instead, you want to keep the stream active - e.g., so you can later
     // 'seek' back within it and do another RTSP "PLAY" - then you can omit this code.
     // (Alternatively, if you don't want to receive the entire stream, you could set this timer for some shorter value.)
-    if (scs.duration > 0) {
+    if (playDuration > 0) {
       unsigned const delaySlop = 2; // number of seconds extra to delay, after the stream's expected duration.  (This is optional.)
       scs.duration += delaySlop;
-      unsigned uSecsToDelay = (unsigned)(scs.duration*1000000);
+      unsigned uSecsToDelay = (unsigned)(playDuration*1000000);
       scs.streamTimerTask = env.taskScheduler().scheduleDelayedTask(uSecsToDelay, (TaskFunc*)streamTimerHandler, rtspClient);
     }
 
     env << *rtspClient << "Started playing session";
     if (scs.duration > 0) {
-      env << " (for up to " << scs.duration << " seconds)";
+      env << " (for up to " << playDuration << " seconds)";
     }
     env << "...\n";
 
